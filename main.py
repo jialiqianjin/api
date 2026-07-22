@@ -20,12 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 环境变量配置
 AITOOLS_KEY = os.getenv("AITOOLS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 API_ENDPOINT = "https://platform.aitools.cfd/api/v1/chat/completions"
 
-# 模型轮换队列【主模型→兜底模型】
 MODEL_ROUTE_LIST = [
     "qwen/qwen2.5-vl-32b",
     "zhipu/glm-4v-flash"
@@ -33,7 +31,7 @@ MODEL_ROUTE_LIST = [
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "version": "auto-switch-vl"}
+    return {"status": "ok"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -62,13 +60,26 @@ async def chat(data: dict):
                     headers=headers,
                     json=payload
                 )
-            result = resp.json()
-            return result
+            if resp.status_code != 200:
+                continue
+            raw = resp.json()
+            # 强制标准化返回结构，适配你的前端
+            if "choices" in raw and raw["choices"]:
+                return raw
         except Exception:
             await asyncio.sleep(0.9)
             continue
-
-    return {"error": "所有视觉模型请求失败，请稍后重试"}, 500
+    # 异常统一返回前端能正常渲染的格式
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "当前所有模型繁忙，请稍后重新发送"
+                }
+            }
+        ]
+    }
 
 # ========== 图片识图接口 ==========
 @app.post("/image_chat")
@@ -110,10 +121,22 @@ async def image_chat(
                     headers=headers,
                     json=payload
                 )
-            result = res.json()
-            return result
+            if res.status_code != 200:
+                continue
+            raw = res.json()
+            if "choices" in raw and raw["choices"]:
+                return raw
         except Exception:
             await asyncio.sleep(0.9)
             continue
 
-    return {"error": "识图：所有模型连接失败，请稍后尝试"}, 500
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "识图请求失败，所有模型暂时无法连接，请稍后尝试"
+                }
+            }
+        ]
+    }
