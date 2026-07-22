@@ -21,10 +21,13 @@ app.add_middleware(
 
 MS_KEY = os.getenv("MS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
+# 识图模型轮询列表
+VL_MODEL_LIST = ["qwen-vl-max", "qwen-vl-plus"]
+TEXT_MODEL_LIST = ["qwen-plus"]
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "qwen-vl-max"}
+    return {"status": "ok", "ver": "auto_retry_vl"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -34,49 +37,31 @@ async def chat(data: dict):
         return {"error": "权限不足"}, 401
 
     headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
-    try:
-        messages = data.get("messages", [])
-        model = data.get("model", "qwen-plus")
-        payload = {
-            "model": model,
-            "input": {
-                "messages": messages
-            }
-        }
+    messages = data.get("messages", [])
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                "https://modelscope.cn/api/v1/services/aigc/text-generation/generation",
-                headers=headers,
-                json=payload
-            )
-
-        if resp.status_code != 200:
-            return {"error": f"魔搭接口异常，状态码:{resp.status_code}"}, 500
-
-        resp_text = resp.text.strip()
+    for model in TEXT_MODEL_LIST:
         try:
+            payload = {
+                "model": model,
+                "input": {"messages": messages}
+            }
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    "https://modelscope.cn/api/v1/services/aigc/text-generation/generation",
+                    headers=headers,
+                    json=payload
+                )
+            if resp.status_code != 200:
+                continue
+            resp_text = resp.text.strip()
             raw = json.loads(resp_text)
-        except json.JSONDecodeError:
-            lines = [l for l in resp_text.splitlines() if l.strip()]
-            if lines:
-                raw = json.loads(lines[-1])
-            else:
-                raise
-
-        content = ""
-        if "output" in raw:
             content = raw["output"].get("text", "")
-        elif "choices" in raw and raw["choices"]:
-            content = raw["choices"][0].get("message", {}).get("content", "")
+            return {"choices": [{"message": {"role": "assistant", "content": content}}]}
+        except Exception:
+            continue
+    return {"error": "所有文本模型请求繁忙，请稍后重试"}, 500
 
-        return {
-            "choices": [{"message": {"role": "assistant", "content": content}}]
-        }
-    except Exception as e:
-        return {"error": f"请求模型失败：{str(e)}"}, 500
-
-# ========== 图片识图接口【切换 qwen-vl-max】==========
+# ========== 识图接口【自动切换两个VL模型重试】==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -86,49 +71,39 @@ async def image_chat(
     if token != APP_SECRET:
         return {"error": "权限不足"}, 401
 
-    try:
-        img_data = await image.read()
-        b64_img = base64.b64encode(img_data).decode()
+    img_data = await image.read()
+    b64_img = base64.b64encode(img_data).decode()
+    headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
 
-        # 正式可用模型 qwen-vl-max
-        payload = {
-            "model": "qwen-vl-max",
-            "input": {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"image": b64_img},
-                            {"text": prompt}
-                        ]
-                    }
-                ]
+    # 循环尝试两个可用识图模型
+    for model_name in VL_MODEL_LIST:
+        try:
+            payload = {
+                "model": model_name,
+                "input": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"image": b64_img}, {"text": prompt}]
+                        }
+                    ]
+                }
             }
-        }
-        headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
-
-        async with httpx.AsyncClient(timeout=120) as client:
-            res = await client.post(
-                "https://modelscope.cn/api/v1/services/aigc/multimodal-generation/generation",
-                json=payload,
-                headers=headers
-            )
-
-        if res.status_code != 200:
-            return {"error": f"识图接口异常，状态码:{res.status_code}"}, 500
-
-        raw = res.json()
-        content = ""
-        if "output" in raw:
+            async with httpx.AsyncClient(timeout=120) as client:
+                res = await client.post(
+                    "https://modelscope.cn/api/v1/services/aigc/multimodal-generation/generation",
+                    json=payload,
+                    headers=headers
+                )
+            if res.status_code != 200:
+                continue
+            raw = res.json()
             content = raw["output"].get("text", "")
-        elif "choices" in raw and raw["choices"]:
-            content = raw["choices"][0].get("message", {}).get("content", "")
+            return {"choices": [{"message": {"role": "assistant", "content": content}}]}
+        except Exception:
+            continue
+    return {"error": "qwen-vl-max、qwen-vl-plus 全部繁忙，稍后再试"}, 500
 
-        return {
-            "choices": [{"message": {"role": "assistant", "content": content}}]
-        }
-    except Exception as e:
-        return {"error": f"识图请求失败：{str(e)}"}, 500
 
 
 
