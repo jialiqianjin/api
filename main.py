@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 import base64
-import json
 
 app = FastAPI()
 
@@ -24,7 +23,7 @@ APP_SECRET = os.getenv("APP_SECRET")
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok","ver":"final-qwen3-8b"}
+    return {"status": "ok","ver":"qwen2.5-14b-auto-retry"}
 
 @app.post("/v1/chat/completions")
 async def chat(data: dict = Body(...)):
@@ -38,22 +37,26 @@ async def chat(data: dict = Body(...)):
     }
     upstream_url = "https://api-inference.modelscope.cn/v1/chat/completions"
     payload = {
-        "model": "Qwen/Qwen3-8B",
+        "model": "Qwen/Qwen2.5-14B-Instruct",
         "messages": data.get("messages", [])
     }
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                upstream_url,
-                headers=headers,
-                json=payload
-            )
-        if resp.status_code != 200:
-            return {"error": f"魔搭接口异常，状态码:{resp.status_code}"}, 500
-        raw = resp.json()
-        return raw
-    except Exception as e:
-        return {"error": f"请求模型失败：{str(e)}"}, 500
+    max_retry = 3
+    for _ in range(max_retry):
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    upstream_url,
+                    headers=headers,
+                    json=payload
+                )
+            if resp.status_code != 200:
+                continue
+            raw = resp.json()
+            if raw.get("choices") and len(raw["choices"]) > 0:
+                return raw
+        except Exception:
+            continue
+    return {"error": "模型调度繁忙，未能获取回答，请稍后重新发送消息"}, 500
 
 @app.post("/image_chat")
 async def image_chat(
