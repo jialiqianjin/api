@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 import base64
+import json
 
 app = FastAPI()
 
@@ -45,8 +46,15 @@ async def chat(data: dict):
                 json=data
             )
         raw = resp.json()
-        # 包装成OpenAI兼容格式，适配前端解析
-        content = raw.get("output", {}).get("text", "")
+        # 打印原始返回，方便排查
+        print("魔搭文本原始返回：", json.dumps(raw, ensure_ascii=False))
+        # 兼容多种返回结构兜底
+        content = ""
+        if raw.get("output") and raw["output"].get("text"):
+            content = raw["output"]["text"]
+        elif raw.get("output") and raw["output"].get("choices"):
+            content = raw["output"]["choices"][0]["message"]["content"]
+
         return {
             "choices": [
                 {
@@ -58,6 +66,7 @@ async def chat(data: dict):
             ]
         }
     except Exception as e:
+        print("文本接口异常：", str(e))
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
 # 图片识图接口
@@ -86,8 +95,13 @@ async def image_chat(
                 headers=headers
             )
         raw = res.json()
-        # 识图接口同样包装统一格式
-        content = raw.get("output", {}).get("text", "")
+        print("魔搭识图原始返回：", json.dumps(raw, ensure_ascii=False))
+        content = ""
+        if raw.get("output") and raw["output"].get("text"):
+            content = raw["output"]["text"]
+        elif raw.get("output") and raw["output"].get("choices"):
+            content = raw["output"]["choices"][0]["message"]["content"]
+
         return {
             "choices": [
                 {
@@ -99,7 +113,9 @@ async def image_chat(
             ]
         }
     except Exception as e:
+        print("识图接口异常：", str(e))
         return {"error": f"识图请求失败：{str(e)}"}, 500
+
 
 
 
