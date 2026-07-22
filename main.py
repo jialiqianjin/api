@@ -24,9 +24,9 @@ APP_SECRET = os.getenv("APP_SECRET")
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "fix-v5-low-traffic-model"}
+    return {"status": "ok", "ver": "qwen-vl-max"}
 
-# ========== 文本对话接口【默认切换 qwen3-plus，负载更低】==========
+# ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
     token = data.get("token")
@@ -36,8 +36,7 @@ async def chat(data: dict):
     headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
     try:
         messages = data.get("messages", [])
-        # 【改动】默认模型换成 qwen3-plus（冷门低负载）
-        model = data.get("model", "qwen3-plus")
+        model = data.get("model", "qwen-plus")
         payload = {
             "model": model,
             "input": {
@@ -77,7 +76,7 @@ async def chat(data: dict):
     except Exception as e:
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
-# ========== 图片识图接口【替换 qwen3-vl-plus】==========
+# ========== 图片识图接口【切换 qwen-vl-max】==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -91,9 +90,9 @@ async def image_chat(
         img_data = await image.read()
         b64_img = base64.b64encode(img_data).decode()
 
-        # 【核心改动！识图模型更换为 qwen3-vl-plus，更少人使用】
+        # 正式可用模型 qwen-vl-max
         payload = {
-            "model": "qwen3-vl-plus",
+            "model": "qwen-vl-max",
             "input": {
                 "messages": [
                     {
@@ -130,6 +129,7 @@ async def image_chat(
         }
     except Exception as e:
         return {"error": f"识图请求失败：{str(e)}"}, 500
+
 
 
 
