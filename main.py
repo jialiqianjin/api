@@ -23,15 +23,15 @@ app.add_middleware(
 AQUA_KEY = os.getenv("AQUA_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 API_BASE = "https://api.ltzy.top/v1"
-# 主模型、备选模型（都支持识图）
+# 视觉模型轮换：轻量优先，降低断开概率
 MODEL_LIST = [
-    "qwen/qwen3.5-397b-a17b",
-    "qwen/qwen3-next-80b"
+    "stepfun-ai/step-3.7-flash",
+    "qwen/qwen3.5-397b-a17b"
 ]
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "AQUA-retry"}
+    return {"status": "ok", "gateway": "AQUA-Fixed"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -42,14 +42,18 @@ async def chat(data: dict):
 
     headers = {
         "Authorization": f"Bearer {AQUA_KEY}",
+        "x-api-key": AQUA_KEY,
         "Content-Type": "application/json"
     }
     messages = data.get("messages", [])
-    
+
     for model in MODEL_LIST:
         payload = {
             "model": model,
-            "messages": messages
+            "messages": messages,
+            "stream": False,
+            "max_tokens": 1024,
+            "temperature": 0.7
         }
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
@@ -61,7 +65,7 @@ async def chat(data: dict):
             raw = resp.json()
             return raw
         except Exception:
-            await asyncio.sleep(1)
+            await asyncio.sleep(1.2)
             continue
     return {"error": "所有模型连接失败，上游服务器断开"}, 500
 
@@ -79,6 +83,7 @@ async def image_chat(
     b64_img = base64.b64encode(img_data).decode()
     headers = {
         "Authorization": f"Bearer {AQUA_KEY}",
+        "x-api-key": AQUA_KEY,
         "Content-Type": "application/json"
     }
 
@@ -93,7 +98,10 @@ async def image_chat(
                         {"type": "text", "text": prompt}
                     ]
                 }
-            ]
+            ],
+            "stream": False,
+            "max_tokens": 1024,
+            "temperature": 0.7
         }
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
@@ -105,6 +113,6 @@ async def image_chat(
             raw = res.json()
             return raw
         except Exception:
-            await asyncio.sleep(1)
+            await asyncio.sleep(1.2)
             continue
     return {"error": "识图请求全部失败，上游服务器断开"}, 500
