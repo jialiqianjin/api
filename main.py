@@ -6,7 +6,7 @@ import base64
 
 app = FastAPI()
 
-# 前端域名白名单【已修复：同时支持带www和不带www】
+# 前端域名白名单
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
     "https://www.jialiqianjin.l2.ink"
@@ -19,11 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 读取环境密钥
 MS_KEY = os.getenv("MS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 
-# 健康检测（保活接口）
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
@@ -46,7 +44,19 @@ async def chat(data: dict):
                 headers=headers,
                 json=data
             )
-        return resp.json(), resp.status_code
+        raw = resp.json()
+        # 包装成OpenAI兼容格式，适配前端解析
+        content = raw.get("output", {}).get("text", "")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": content
+                    }
+                }
+            ]
+        }
     except Exception as e:
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
@@ -75,9 +85,22 @@ async def image_chat(
                 json=payload,
                 headers=headers
             )
-        return res.json(), res.status_code
+        raw = res.json()
+        # 识图接口同样包装统一格式
+        content = raw.get("output", {}).get("text", "")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": content
+                    }
+                }
+            ]
+        }
     except Exception as e:
         return {"error": f"识图请求失败：{str(e)}"}, 500
+
 
 
 
