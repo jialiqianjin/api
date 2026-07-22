@@ -21,13 +21,14 @@ app.add_middleware(
 
 MS_KEY = os.getenv("MS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
-# 识图模型轮询列表
+# 识图轮询双模型
 VL_MODEL_LIST = ["qwen-vl-max", "qwen-vl-plus"]
-TEXT_MODEL_LIST = ["qwen-plus"]
+# 文本更换为 qwen-turbo（低负载备选）
+TEXT_MODEL_LIST = ["qwen-turbo"]
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "auto_retry_vl"}
+    return {"status": "ok", "ver": "turbo-text_vlmax"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -59,7 +60,7 @@ async def chat(data: dict):
             return {"choices": [{"message": {"role": "assistant", "content": content}}]}
         except Exception:
             continue
-    return {"error": "所有文本模型请求繁忙，请稍后重试"}, 500
+    return {"error": "文本模型请求繁忙，请稍后重试"}, 500
 
 # ========== 识图接口【自动切换两个VL模型重试】==========
 @app.post("/image_chat")
@@ -75,7 +76,6 @@ async def image_chat(
     b64_img = base64.b64encode(img_data).decode()
     headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
 
-    # 循环尝试两个可用识图模型
     for model_name in VL_MODEL_LIST:
         try:
             payload = {
@@ -103,6 +103,7 @@ async def image_chat(
         except Exception:
             continue
     return {"error": "qwen-vl-max、qwen-vl-plus 全部繁忙，稍后再试"}, 500
+
 
 
 
