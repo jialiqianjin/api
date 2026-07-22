@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, Form
+from fastapi import FastAPI, UploadFile, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
@@ -24,63 +24,47 @@ APP_SECRET = os.getenv("APP_SECRET")
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "fix-v4"}
+    return {"status": "ok", "ver": "fix-v5"}
 
-# ========== 文本对话接口（修复请求格式 + 容错解析）==========
+# ========== 文本对话接口【修复Body接收问题】==========
 @app.post("/v1/chat/completions")
-async def chat(data: dict):
+async def chat(data: dict = Body(...)):
     token = data.get("token")
     if token != APP_SECRET:
         return {"error": "权限不足"}, 401
 
     headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
     try:
-        # 提取 messages，按魔搭标准格式构造请求（不透传token给魔搭）
         messages = data.get("messages", [])
-        model = data.get("model", "qwen-plus")
         payload = {
-            "model": model,
             "input": {
                 "messages": messages
             }
         }
-
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
                 "https://modelscope.cn/api/v1/services/aigc/text-generation/generation",
                 headers=headers,
                 json=payload
             )
-
         if resp.status_code != 200:
             return {"error": f"魔搭接口异常，状态码:{resp.status_code}"}, 500
 
-        # 容错解析：兼容单JSON和多行流式JSON
         resp_text = resp.text.strip()
         try:
             raw = json.loads(resp_text)
         except json.JSONDecodeError:
-            # 尝试取最后一行的JSON（流式输出场景）
             lines = [l for l in resp_text.splitlines() if l.strip()]
-            if lines:
-                raw = json.loads(lines[-1])
-            else:
-                raise
+            raw = json.loads(lines[-1]) if lines else {}
 
-        # 兼容多种返回结构
-        content = ""
-        if "output" in raw:
-            content = raw["output"].get("text", "")
-        elif "choices" in raw and raw["choices"]:
-            content = raw["choices"][0].get("message", {}).get("content", "")
-
+        content = raw.get("output", {}).get("text", "")
         return {
             "choices": [{"message": {"role": "assistant", "content": content}}]
         }
     except Exception as e:
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
-# ========== 图片识图接口（修复请求格式 + 参数顺序确认）==========
+# ========== 识图接口 ==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -89,12 +73,9 @@ async def image_chat(
 ):
     if token != APP_SECRET:
         return {"error": "权限不足"}, 401
-
     try:
         img_data = await image.read()
         b64_img = base64.b64encode(img_data).decode()
-
-        # 按魔搭多模态标准格式构造
         payload = {
             "model": "qwen-vl-plus",
             "input": {
@@ -110,24 +91,16 @@ async def image_chat(
             }
         }
         headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
-
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(
                 "https://modelscope.cn/api/v1/services/aigc/multimodal-generation/generation",
                 json=payload,
                 headers=headers
             )
-
         if res.status_code != 200:
             return {"error": f"识图接口异常，状态码:{res.status_code}"}, 500
-
         raw = res.json()
-        content = ""
-        if "output" in raw:
-            content = raw["output"].get("text", "")
-        elif "choices" in raw and raw["choices"]:
-            content = raw["choices"][0].get("message", {}).get("content", "")
-
+        content = raw.get("output", {}).get("text", "")
         return {
             "choices": [{"message": {"role": "assistant", "content": content}}]
         }
