@@ -20,18 +20,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-AQUA_KEY = os.getenv("AQUA_KEY")
+# 环境变量配置
+AITOOLS_KEY = os.getenv("AITOOLS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
-API_BASE = "https://api.ltzy.top/v1"
-# 视觉模型轮换：轻量优先，降低断开概率
-MODEL_LIST = [
-    "stepfun-ai/step-3.7-flash",
-    "qwen/qwen3.5-397b-a17b"
+API_ENDPOINT = "https://platform.aitools.cfd/api/v1/chat/completions"
+
+# 模型轮换队列【主模型→兜底模型】
+MODEL_ROUTE_LIST = [
+    "qwen/qwen2.5-vl-32b",
+    "zhipu/glm-4v-flash"
 ]
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "gateway": "AQUA-Fixed"}
+    return {"status": "ok", "version": "auto-switch-vl"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -41,33 +43,32 @@ async def chat(data: dict):
         return {"error": "权限不足"}, 401
 
     headers = {
-        "Authorization": f"Bearer {AQUA_KEY}",
-        "x-api-key": AQUA_KEY,
+        "Authorization": f"Bearer {AITOOLS_KEY}",
         "Content-Type": "application/json"
     }
     messages = data.get("messages", [])
 
-    for model in MODEL_LIST:
+    for model_name in MODEL_ROUTE_LIST:
         payload = {
-            "model": model,
+            "model": model_name,
             "messages": messages,
-            "stream": False,
             "max_tokens": 1024,
             "temperature": 0.7
         }
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.post(
-                    f"{API_BASE}/chat/completions",
+                    API_ENDPOINT,
                     headers=headers,
                     json=payload
                 )
-            raw = resp.json()
-            return raw
+            result = resp.json()
+            return result
         except Exception:
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.9)
             continue
-    return {"error": "所有模型连接失败，上游服务器断开"}, 500
+
+    return {"error": "所有视觉模型请求失败，请稍后重试"}, 500
 
 # ========== 图片识图接口 ==========
 @app.post("/image_chat")
@@ -81,15 +82,15 @@ async def image_chat(
 
     img_data = await image.read()
     b64_img = base64.b64encode(img_data).decode()
+
     headers = {
-        "Authorization": f"Bearer {AQUA_KEY}",
-        "x-api-key": AQUA_KEY,
+        "Authorization": f"Bearer {AITOOLS_KEY}",
         "Content-Type": "application/json"
     }
 
-    for model in MODEL_LIST:
+    for model_name in MODEL_ROUTE_LIST:
         payload = {
-            "model": model,
+            "model": model_name,
             "messages": [
                 {
                     "role": "user",
@@ -99,20 +100,20 @@ async def image_chat(
                     ]
                 }
             ],
-            "stream": False,
             "max_tokens": 1024,
             "temperature": 0.7
         }
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
                 res = await client.post(
-                    f"{API_BASE}/chat/completions",
+                    API_ENDPOINT,
                     headers=headers,
                     json=payload
                 )
-            raw = res.json()
-            return raw
+            result = res.json()
+            return result
         except Exception:
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.9)
             continue
-    return {"error": "识图请求全部失败，上游服务器断开"}, 500
+
+    return {"error": "识图：所有模型连接失败，请稍后尝试"}, 500
