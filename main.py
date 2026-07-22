@@ -19,16 +19,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MS_KEY = os.getenv("MS_KEY")
+# 环境变量修改！！不再使用MS_KEY，改为AQUA_KEY
+AQUA_KEY = os.getenv("AQUA_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
-# 识图轮询双模型
-VL_MODEL_LIST = ["qwen-vl-max", "qwen-vl-plus"]
-# 文本更换为 qwen-turbo（低负载备选）
-TEXT_MODEL_LIST = ["qwen-turbo"]
+# 选定模型名称
+TARGET_MODEL = "qwen/qwen3.5-397b-a17b"
+API_BASE = "https://api.ltzy.top/v1"
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "ver": "turbo-text_vlmax"}
+    return {"status": "ok", "ver": "AQUA-Qwen3.5-397B"}
 
 # ========== 文本对话接口 ==========
 @app.post("/v1/chat/completions")
@@ -37,32 +37,28 @@ async def chat(data: dict):
     if token != APP_SECRET:
         return {"error": "权限不足"}, 401
 
-    headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {AQUA_KEY}",
+        "Content-Type": "application/json"
+    }
     messages = data.get("messages", [])
+    payload = {
+        "model": TARGET_MODEL,
+        "messages": messages
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{API_BASE}/chat/completions",
+                headers=headers,
+                json=payload
+            )
+        raw = resp.json()
+        return raw
+    except Exception as e:
+        return {"error": f"请求模型失败：{str(e)}"}, 500
 
-    for model in TEXT_MODEL_LIST:
-        try:
-            payload = {
-                "model": model,
-                "input": {"messages": messages}
-            }
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.post(
-                    "https://modelscope.cn/api/v1/services/aigc/text-generation/generation",
-                    headers=headers,
-                    json=payload
-                )
-            if resp.status_code != 200:
-                continue
-            resp_text = resp.text.strip()
-            raw = json.loads(resp_text)
-            content = raw["output"].get("text", "")
-            return {"choices": [{"message": {"role": "assistant", "content": content}}]}
-        except Exception:
-            continue
-    return {"error": "文本模型请求繁忙，请稍后重试"}, 500
-
-# ========== 识图接口【自动切换两个VL模型重试】==========
+# ========== 图片识图接口 ==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -74,44 +70,30 @@ async def image_chat(
 
     img_data = await image.read()
     b64_img = base64.b64encode(img_data).decode()
-    headers = {"Authorization": f"Bearer {MS_KEY}", "Content-Type": "application/json"}
-
-    for model_name in VL_MODEL_LIST:
-        try:
-            payload = {
-                "model": model_name,
-                "input": {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [{"image": b64_img}, {"text": prompt}]
-                        }
-                    ]
-                }
+    headers = {
+        "Authorization": f"Bearer {AQUA_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": TARGET_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image;base64,{b64_img}"}},
+                    {"type": "text", "text": prompt}
+                ]
             }
-            async with httpx.AsyncClient(timeout=120) as client:
-                res = await client.post(
-                    "https://modelscope.cn/api/v1/services/aigc/multimodal-generation/generation",
-                    json=payload,
-                    headers=headers
-                )
-            if res.status_code != 200:
-                continue
-            raw = res.json()
-            content = raw["output"].get("text", "")
-            return {"choices": [{"message": {"role": "assistant", "content": content}}]}
-        except Exception:
-            continue
-    return {"error": "qwen-vl-max、qwen-vl-plus 全部繁忙，稍后再试"}, 500
-
-
-
-
-
-
-
-
-
-
-
-
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            res = await client.post(
+                f"{API_BASE}/chat/completions",
+                headers=headers,
+                json=payload
+            )
+        raw = res.json()
+        return raw
+    except Exception as e:
+        return {"error": f"识图请求失败：{str(e)}"}, 500
