@@ -6,8 +6,11 @@ import base64
 
 app = FastAPI()
 
-# 前端域名白名单
-ALLOW_ORIGINS = ["https://jialiqianjin.l2.ink"]
+# 前端域名白名单【已修复：同时支持带www和不带www】
+ALLOW_ORIGINS = [
+    "https://jialiqianjin.l2.ink",
+    "https://www.jialiqianjin.l2.ink"
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOW_ORIGINS,
@@ -47,7 +50,7 @@ async def chat(data: dict):
     except Exception as e:
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
-# 图片识图接口【已修复参数顺序语法错误】
+# 图片识图接口
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -75,6 +78,7 @@ async def image_chat(
         return res.json(), res.status_code
     except Exception as e:
         return {"error": f"识图请求失败：{str(e)}"}, 500
+
 
 
 
