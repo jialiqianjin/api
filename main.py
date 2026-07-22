@@ -47,11 +47,11 @@ async def chat(data: dict):
     except Exception as e:
         return {"error": f"请求模型失败：{str(e)}"}, 500
 
-# 图片识图接口
+# 图片识图接口【已修复参数顺序语法错误】
 @app.post("/image_chat")
 async def image_chat(
-    prompt: str = Form(...),
     image: UploadFile,
+    prompt: str = Form(...),
     token: str = Form(...)
 ):
     if token != APP_SECRET:
@@ -75,6 +75,7 @@ async def image_chat(
         return res.json(), res.status_code
     except Exception as e:
         return {"error": f"识图请求失败：{str(e)}"}, 500
+
 
 
 
