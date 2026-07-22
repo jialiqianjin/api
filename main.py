@@ -23,7 +23,7 @@ APP_SECRET = os.getenv("APP_SECRET")
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok","ver":"qwen2.5-14b-auto-retry"}
+    return {"status": "ok","ver":"qwen3-8b-auto-retry"}
 
 @app.post("/v1/chat/completions")
 async def chat(data: dict = Body(...)):
@@ -37,7 +37,7 @@ async def chat(data: dict = Body(...)):
     }
     upstream_url = "https://api-inference.modelscope.cn/v1/chat/completions"
     payload = {
-        "model": "Qwen/Qwen2.5-14B-Instruct",
+        "model": "Qwen/Qwen3-8B",
         "messages": data.get("messages", [])
     }
     max_retry = 3
