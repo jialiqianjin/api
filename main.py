@@ -1,35 +1,14 @@
 from fastapi import FastAPI, UploadFile, Form, Request, Response
+# 修复：补充缺失的CORS中间件导入
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 import base64
 import asyncio
+
 app = FastAPI()
 
-# 新增优先处理OPTIONS中间件（唯一改动，其余不动）
-@app.middleware("http")
-async def preflight_middleware(request: Request, call_next):
-    origin = request.headers.get("origin")
-    allow_list = [
-        "https://jialiqianjin.l2.ink",
-        "https://www.jialiqianjin.l2.ink"
-    ]
-    response: Response = await call_next(request)
-    if origin and origin in allow_list:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        response.headers["Access-Control-Max-Age"] = "86400"
-    # 预检请求直接返回204，不走路由匹配避免404
-    if request.method == "OPTIONS":
-        return Response(status_code=204)
-    return {}
-
-# =========【全局OPTIONS路由保留，兼容兜底，原有代码不动】=========
-@app.options("/{full_path:path}")
-async def global_options_handler(request: Request, full_path: str):
-    return {}
-
-# CORS跨域配置（原样保留不修改）
+# 标准CORS优先注册（最外层中间件，预检优先处理）
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
     "https://www.jialiqianjin.l2.ink"
@@ -42,6 +21,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 自定义全局预检中间件（修复执行顺序BUG）
+@app.middleware("http")
+async def preflight_middleware(request: Request, call_next):
+    origin = request.headers.get("origin")
+    allow_list = [
+        "https://jialiqianjin.l2.ink",
+        "https://www.jialiqianjin.l2.ink"
+    ]
+    # 预检请求直接返回204，不进入路由匹配，彻底解决404
+    if request.method == "OPTIONS":
+        resp = Response(status_code=204)
+        if origin and origin in allow_list:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
+            resp.headers["Access-Control-Allow-Headers"] = "*"
+            resp.headers["Access-Control-Max-Age"] = "86400"
+        return resp
+    # 正常业务请求走后续流程
+    response: Response = await call_next(request)
+    if origin and origin in allow_list:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+# 移除多余重复@app.options路由，避免冲突
+
 AITOOLS_KEY = os.getenv("AITOOLS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 API_ENDPOINT = "https://platform.aitools.cfd/api/v1/chat/completions"
@@ -53,7 +60,8 @@ MODEL_ROUTE_LIST = [
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
-# 文本对话接口（完全原样）
+
+# ========== 文本对话接口【完全原样，无任何修改】 ==========
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
     token = data.get("token")
@@ -96,7 +104,8 @@ async def chat(data: dict):
             }
         ]
     }
-# 图片识图接口（完全原样）
+
+# ========== 图片识图接口【完全原样，无任何修改】 ==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
