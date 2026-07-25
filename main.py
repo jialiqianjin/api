@@ -3,9 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 import base64
-import json
 import asyncio
+
 app = FastAPI()
+
+# =========【重点：全局OPTIONS路由，必须放在所有路由最顶部、CORS中间件之后】=========
+@app.options("/{full_path:path}")
+async def global_options_handler(request: Request, full_path: str):
+    return {}
+
+# CORS跨域配置
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
     "https://www.jialiqianjin.l2.ink"
@@ -17,6 +24,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 AITOOLS_KEY = os.getenv("AITOOLS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 API_ENDPOINT = "https://platform.aitools.cfd/api/v1/chat/completions"
@@ -25,15 +33,11 @@ MODEL_ROUTE_LIST = [
     "zhipu/glm-4v-flash"
 ]
 
-# 新增全局捕获所有OPTIONS预检请求，修复404导致CORS拦截
-@app.options("/{full_path:path}")
-async def global_options_handler(request: Request, full_path: str):
-    return {}
-
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
-# ========== 文本对话接口 ==========
+
+# 文本对话接口
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
     token = data.get("token")
@@ -61,13 +65,11 @@ async def chat(data: dict):
             if resp.status_code != 200:
                 continue
             raw = resp.json()
-            # 强制标准化返回结构，适配你的前端
             if "choices" in raw and raw["choices"]:
                 return raw
         except Exception:
             await asyncio.sleep(0.9)
             continue
-    # 异常统一返回前端能正常渲染的格式
     return {
         "choices": [
             {
@@ -78,7 +80,8 @@ async def chat(data: dict):
             }
         ]
     }
-# ========== 图片识图接口 ==========
+
+# 图片识图接口
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
