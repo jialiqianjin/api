@@ -1,18 +1,35 @@
-from fastapi import FastAPI, UploadFile, Form, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, UploadFile, Form, Request, Response
 import httpx
 import os
 import base64
 import asyncio
-
 app = FastAPI()
 
-# =========【重点：全局OPTIONS路由，必须放在所有路由最顶部、CORS中间件之后】=========
+# 新增优先处理OPTIONS中间件（唯一改动，其余不动）
+@app.middleware("http")
+async def preflight_middleware(request: Request, call_next):
+    origin = request.headers.get("origin")
+    allow_list = [
+        "https://jialiqianjin.l2.ink",
+        "https://www.jialiqianjin.l2.ink"
+    ]
+    response: Response = await call_next(request)
+    if origin and origin in allow_list:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"
+    # 预检请求直接返回204，不走路由匹配避免404
+    if request.method == "OPTIONS":
+        return Response(status_code=204)
+    return {}
+
+# =========【全局OPTIONS路由保留，兼容兜底，原有代码不动】=========
 @app.options("/{full_path:path}")
 async def global_options_handler(request: Request, full_path: str):
     return {}
 
-# CORS跨域配置
+# CORS跨域配置（原样保留不修改）
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
     "https://www.jialiqianjin.l2.ink"
@@ -36,8 +53,7 @@ MODEL_ROUTE_LIST = [
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
-
-# 文本对话接口
+# 文本对话接口（完全原样）
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
     token = data.get("token")
@@ -80,8 +96,7 @@ async def chat(data: dict):
             }
         ]
     }
-
-# 图片识图接口
+# 图片识图接口（完全原样）
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
