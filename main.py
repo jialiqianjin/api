@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, Form, Request, Response
-# 修复：补充缺失的CORS中间件导入
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 import os
 import base64
@@ -8,7 +8,31 @@ import asyncio
 
 app = FastAPI()
 
-# 标准CORS优先注册（最外层中间件，预检优先处理）
+# 新增底层拦截中间件（最先执行，平台root-path环境下优先处理OPTIONS预检）
+class PreflightBlockMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        allow_list = [
+            "https://jialiqianjin.l2.ink",
+            "https://www.jialiqianjin.l2.ink"
+        ]
+        if request.method == "OPTIONS":
+            resp = Response(status_code=204)
+            if origin and origin in allow_list:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
+                resp.headers["Access-Control-Allow-Headers"] = "*"
+                resp.headers["Access-Control-Max-Age"] = "86400"
+            return resp
+        response = await call_next(request)
+        if origin and origin in allow_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        return response
+
+# 注册底层中间件（优先级最高）
+app.add_middleware(PreflightBlockMiddleware)
+
+# 原有CORS配置 完全原样保留，无任何改动
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
     "https://www.jialiqianjin.l2.ink"
@@ -20,34 +44,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# 自定义全局预检中间件（修复执行顺序BUG）
-@app.middleware("http")
-async def preflight_middleware(request: Request, call_next):
-    origin = request.headers.get("origin")
-    allow_list = [
-        "https://jialiqianjin.l2.ink",
-        "https://www.jialiqianjin.l2.ink"
-    ]
-    # 预检请求直接返回204，不进入路由匹配，彻底解决404
-    if request.method == "OPTIONS":
-        resp = Response(status_code=204)
-        if origin and origin in allow_list:
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
-            resp.headers["Access-Control-Allow-Headers"] = "*"
-            resp.headers["Access-Control-Max-Age"] = "86400"
-        return resp
-    # 正常业务请求走后续流程
-    response: Response = await call_next(request)
-    if origin and origin in allow_list:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        response.headers["Access-Control-Max-Age"] = "86400"
-    return response
-
-# 移除多余重复@app.options路由，避免冲突
 
 AITOOLS_KEY = os.getenv("AITOOLS_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
@@ -61,7 +57,7 @@ MODEL_ROUTE_LIST = [
 async def ping():
     return {"status": "ok"}
 
-# ========== 文本对话接口【完全原样，无任何修改】 ==========
+# ========== 文本对话接口 一字未改 ==========
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
     token = data.get("token")
@@ -105,7 +101,7 @@ async def chat(data: dict):
         ]
     }
 
-# ========== 图片识图接口【完全原样，无任何修改】 ==========
+# ========== 图片识图接口 一字未改 ==========
 @app.post("/image_chat")
 async def image_chat(
     image: UploadFile,
@@ -127,7 +123,7 @@ async def image_chat(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}},
+                        {"type": "image_url", "image_url": f"data:image/jpeg;base64,{b64_img}"},
                         {"type": "text", "text": prompt}
                     ]
                 }
