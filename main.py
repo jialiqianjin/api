@@ -5,9 +5,7 @@ import httpx
 import os
 import base64
 import asyncio
-
 app = FastAPI()
-
 # 新增底层拦截中间件（最先执行，平台root-path环境下优先处理OPTIONS预检）
 class PreflightBlockMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -28,10 +26,8 @@ class PreflightBlockMiddleware(BaseHTTPMiddleware):
         if origin and origin in allow_list:
             response.headers["Access-Control-Allow-Origin"] = origin
         return response
-
 # 注册底层中间件（优先级最高）
 app.add_middleware(PreflightBlockMiddleware)
-
 # 原有CORS配置 完全原样保留，无任何改动
 ALLOW_ORIGINS = [
     "https://jialiqianjin.l2.ink",
@@ -44,19 +40,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-AITOOLS_KEY = os.getenv("AITOOLS_KEY")
+# ========== 仅修改上游配置，密钥从环境变量读取，不暴露 ==========
+AITOOLS_KEY = os.getenv("VOAPI_SK")
 APP_SECRET = os.getenv("APP_SECRET")
-API_ENDPOINT = "https://platform.aitools.cfd/api/v1/chat/completions"
+API_ENDPOINT = "https://demo.voapi.top/v1/chat/completions"
 MODEL_ROUTE_LIST = [
-    "qwen/qwen2.5-vl-32b",
-    "zhipu/glm-4v-flash"
+    "gpt-4o"
 ]
-
+# ======================================================
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
-
 # ========== 文本对话接口 一字未改 ==========
 @app.post("/v1/chat/completions")
 async def chat(data: dict):
@@ -100,7 +94,6 @@ async def chat(data: dict):
             }
         ]
     }
-
 # ========== 图片识图接口 一字未改 ==========
 @app.post("/image_chat")
 async def image_chat(
